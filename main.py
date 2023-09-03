@@ -8,18 +8,13 @@ import gzip
 
 app = FastAPI()
 
-users = []
-# Abre el archivo comprimido en modo binario y descomprime los datos
+# Para leer el archivo json.gzip
 with gzip.open('data_items.json.gz', 'rb') as archivo_json_comprimido:
-    for linea in archivo_json_comprimido:
-        datos_json = linea.decode('utf-8')
-        objeto_json = json.loads(datos_json)
-        # Añade el objeto JSON completo a la lista
-        users.append(objeto_json)
-# Crea un DataFrame a partir de la lista de objetos JSON
-users_items = pd.DataFrame(users)
-steam_games = pd.read_json('output_steam_games.json', lines=True)
-user_reviews = pd.read_json('data_reviews.json', lines=True)
+    users_items = pd.read_json(archivo_json_comprimido, lines=True, orient='records')
+with gzip.open('data_reviews.json.gz', 'rb') as archivo_json_comprimido:
+    user_reviews = pd.read_json(archivo_json_comprimido, lines=True, orient='records')
+with gzip.open('output_steam_games.json.gz', 'rb') as archivo_json_comprimido:
+    steam_games = pd.read_json(archivo_json_comprimido, lines=True, orient='records')
 
 @app.get("/")
 def welcome():
