@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from typing import Optional
 import gzip
+import re
 
 app = FastAPI()
 
@@ -27,56 +28,33 @@ def welcome():
             'def sentiment_analysis( año : int )':'Según el año de lanzamiento, se devuelve una lista con la cantidad de registros de reseñas de usuarios que se encuentren categorizados con un análisis de sentimiento.',
             'Instrucciones':'Para llamar cada función por favor utiliza "/nombre_de_la_funcion/input"'}
 
-@app.get('/userdata/{User_id}')
-def userdata( User_id : str ): 
-    users = list(set(users_items['user_id']))
-    if User_id in users:
-        # Filtrar los juegos comprados por el usuario
-        user_games = set()  # Evita tener datos duplicados
-        for _, row in users_items[users_items['user_id'] == User_id].iterrows():
-            user_games.update(item['item_name'] for item in row['items'])
-        
-        # Calcular el dinero gastado por el usuario
-        amount_spend = 0
-        for _, game_row in steam_games[steam_games['app_name'].isin(user_games)].iterrows():
-            game_price = game_row['price']
-            if game_price not in ['Free to Play', 'Free', None, 'Third-party','Free To Play','Free Movie','Install Now']:
-                amount_spend += float(game_price)
+@app.get('/userdata/{user_id}')
+async def userdata(user_id: str):
+    user_id = user_id.lower()
+    
+    # Verificar si el usuario existe en users_items
+    if user_id not in users_items['user_id'].values:
+        return {'Message': 'El usuario que brinda no se encuentra en la base de datos.'}
+    
+    # Filtrar las revisiones del usuario
+    user_reviews_filtered = user_reviews[user_reviews['user_id'] == user_id]
 
-        # Calcular la cantidad de juegos que tiene el usuario
-        cant_items = len(user_games)
+    # Calcular el porcentaje de recomendación
+    total_reviews = user_reviews_filtered['reviews'].explode().dropna()
+    total = len(total_reviews)
+    recomendados = total_reviews.apply(lambda review: review['recommend'] == 'True').sum()
+    porcentaje_recom = (recomendados / total) * 100
 
-        # Calcular el porcentaje de recomendación
-        total = 0
-        recomendados = 0
-        for _, row in user_reviews[user_reviews['user_id'] == User_id].iterrows():
-            for review in row['reviews']:
-                if review['recommend'] == 'True':
-                    recomendados += 1
-                total += 1
-        porcentaje_recom = (recomendados / total) * 100 
+    # Filtrar datos de users_items
+    user_items_data = users_items[users_items['user_id'] == user_id]
 
-        return {'La cantidad de dinero gastado por el usuario es': round(amount_spend, 2),
-                'Porcentaje de recomendación de juegos': porcentaje_recom,
-                'Cantidad de juegos que tiene el usuario': cant_items}
-    else:
-        return {'El usuario que brinda no se encuentra en la base de datos.'}
+    # Extraer información
+    spend = round(user_items_data['total_amount'].values[0], 2)
+    items = user_items_data['items_count'].values[0]
 
-def update_date(original_date):
-    try:
-        parsed_date = datetime.strptime(original_date, "%B %d %Y")
-        formatted_date = parsed_date.strftime("%Y-%m-%d")
-        return formatted_date
-    except ValueError:
-        pass
-
-def is_valid_date(date_string):
-    try:
-        datetime.strptime(date_string, '%Y-%m-%d')
-        return True
-    except ValueError:
-        return False
-
+    return {'Porcentaje de recomendación de juegos': float(porcentaje_recom),
+            'Total de dinero gastado por el usuario': float(spend),
+            'Cantidad Total de items': float(items)}
 
 @app.get("/countreviews/{first_date}/{last_date}")
 def countreviews(first_date, last_date : str ): 
@@ -100,21 +78,10 @@ def countreviews(first_date, last_date : str ):
         usuarios_count = len(usuarios)
         porcentaje_recom = (recomendados / total) * 100
         
-        return {f'Cantidad de usuarios que realizaron reviews entre las fechas {first_date} y {last_date} es de' : usuarios_count,
+        return {f'Cantidad de usuarios que realizaron reviews entre las fechas {first_date} y {last_date} es de': usuarios_count,
             f'Porcentaje de juegos recomendados entre las fechas {first_date} y {last_date} es de': round(porcentaje_recom, 2)}
     else:
-        return{'El rango de fechas dado está por fuera del de la base de datos. Se encuentra información desde 2010-10-16 hasta 2015-12-31'}
-
-
-def playtime(game):
-    filtered_items = [item['playtime_forever'] for items in users_items['items'] for item in items if item['item_name'] == game]
-    total_playtime = sum(map(int, filtered_items))
-    return total_playtime
-
-def game_genres(game):
-    matching_games = steam_games[steam_games['app_name'] == game]
-    genres = [genre for genres_list in matching_games['genres'].dropna() for genre in genres_list]
-    return genres
+        return {'El rango de fechas dado está por fuera del de la base de datos. Se encuentra información desde 2010-10-16 hasta 2015-12-31'}
 
 def genres_list():
     # Descomponer las listas de géneros en filas separadas
@@ -124,108 +91,72 @@ def genres_list():
     return unique_genres
 
 @app.get("/genre/{genero}")
-def genre( genero : str ):
-    g_list = genres_list()
-    if genero in g_list:
-        games = set(steam_games['app_name'])  # Utilizar un conjunto en lugar de una lista para buscar de manera más eficiente
-        total_playtime = {}
-
-        for i in range(len(users_items['items'])):
-            for item in users_items['items'][i]:
-                if 'playtime_forever' in item:
-                    game_name = item['item_name']
-                    playtime_forever = int(item['playtime_forever'])
-                    
-                    if game_name in games:
-                        if game_name not in total_playtime:
-                            total_playtime[game_name] = playtime_forever
-                        else:
-                            total_playtime[game_name] += playtime_forever
-
-        games_by_genre = {}
-
-        for i in range(len(steam_games)):
-            app_name = steam_games['app_name'][i]
-            genres = steam_games['genres'][i]
-            
-            if genres is not None:
-                for genre in genres:
-                    if genre not in games_by_genre:
-                        games_by_genre[genre] = []
-                    games_by_genre[genre].append(app_name)
-
-        total_playtime_by_genre = {}  # Diccionario para almacenar el tiempo total de juego por género
-
-        for i in range(len(g_list)):
-            genre = g_list[i]
-            if genre in games_by_genre:
-                total_time = 0  # Inicializar el tiempo total en cero para este género
-                for game in games_by_genre[genre]:
-                    if game in total_playtime:
-                        total_time += total_playtime[game]
-                total_playtime_by_genre[genre] = total_time
-
-        sorted_genres_by_playtime = sorted(total_playtime_by_genre.items(), key=lambda x: x[1], reverse=True)
+def genre(genero: str):
+    genero = genero.lower()
+    # Accede a los tiempos de juego por género desde users_items['items'][0]
+    playtime_data = users_items['items'][0]
+    
+    if genero in playtime_data:
+        # Obtiene el tiempo de juego para el género dado
+        tiempo_jugado = playtime_data[genero]
         
-        for i in range(len(sorted_genres_by_playtime)):
-            if sorted_genres_by_playtime[i][0] == genero:
-                return{f'El género {genero} se encuentra en el puesto número' : i+1}
+        # Obtiene la lista de géneros únicos utilizando la función genres_list
+        unique_genres = genres_list()
+        
+        # Ordena los géneros por tiempo de juego en orden descendente
+        ranking = sorted(unique_genres, key=lambda x: playtime_data.get(x, 0), reverse=True)
+        
+        # Encuentra la posición del género en el ranking
+        posicion = ranking.index(genero) + 1
+        
+        return {f'El género {genero} se encuentra en el puesto número': posicion}
     else:
-        return{'El género brindado no se encuentra en la base de datos, por favor revíselo'}
+        return {'El género brindado no se encuentra en la base de datos, por favor revíselo'}
 
 
 @app.get("/userforgenre/{genero}")
-def userforgenre(genero: str):
+def userforgenre(genero):
+    genero = genero.lower()
     g_list = genres_list()
+    
     if genero in g_list:
-        user_games_playtime = {}
-        games_by_genre = {}
+        # Inicializa un diccionario para almacenar el tiempo de juego por usuario
+        playtime_by_user = {}
 
-        for i in range(len(users_items['user_id'])):
-            user_id = users_items['user_id'][i]
-            for item in users_items['items'][i]:
-                if 'playtime_forever' in item:
-                    game_name = item['item_name']
-                    playtime_forever = int(item['playtime_forever'])
-                    
-                    if user_id not in user_games_playtime:
-                        user_games_playtime[user_id] = []
-                    user_games_playtime[user_id].append((game_name, playtime_forever))
+        # Recorre el DataFrame users_items
+        for index, row in users_items.iterrows():
+            user_id = row['user_id']
+            user_items = row['items']
 
-        for i in range(len(steam_games)):
-            app_name = steam_games['app_name'][i]
-            genres = steam_games['genres'][i]
-                
-            if genres is not None:
-                for genre in genres:
-                    if genre not in games_by_genre:
-                        games_by_genre[genre] = []
-                    games_by_genre[genre].append(app_name)
+            # Inicializa el tiempo de juego para este usuario en 0
+            total_playtime = 0
 
-        target_genre_games = set(games_by_genre.get(genero, []))
+            # Verifica si el género está presente en los items del usuario
+            if genero in user_items:
+                total_playtime = user_items[genero]
 
-        genre_user_playtime = []
-        for user_id, games_playtime in user_games_playtime.items():
-            user_genre_playtime = 0
-            for game_name, playtime_forever in games_playtime:
-                if game_name in target_genre_games:
-                    user_genre_playtime += playtime_forever
-            genre_user_playtime.append((user_id, user_genre_playtime))
-        
-        # Ordenar la lista en función del tiempo de juego y obtener los 5 usuarios con más playtime
-        best_gamers = sorted(genre_user_playtime, key=lambda x: x[1], reverse=True)[:5]
+            # Agrega el tiempo de juego al diccionario
+            playtime_by_user[user_id] = total_playtime
 
-        user_ids = [user_id for user_id, _ in best_gamers]
-        user_urls = [users_items['user_url'][users_items['user_id'] == user_id].iloc[0] for user_id in user_ids]
+        # Ordena el diccionario en función del tiempo de juego en orden descendente
+        sorted_users = sorted(playtime_by_user.items(), key=lambda x: x[1], reverse=True)
 
-        result_dict = {'user_id': user_ids, 'user_url': user_urls}
+        # Toma los primeros 5 usuarios del ranking
+        top_5_users = sorted_users[:5]
 
-        return result_dict
+        # Crea un diccionario con la información de los usuarios en el formato requerido
+        top_5_user_info = {}
+        for user_id, playtime in top_5_users:
+            user_url = users_items[users_items['user_id'] == user_id]['user_url'].values[0]
+            top_5_user_info[user_id] = user_url
+
+        return top_5_user_info
     else:
         return {'El género brindado no se encuentra en la base de datos, por favor revíselo'}
-    
+
 @app.get("/developer/{desarrollador}")
 def developer(desarrollador: str):
+    desarrollador = desarrollador.lower()
     """Cantidad de items y porcentaje de contenido Free por año según empresa desarrolladora. Ejemplo de salida:"""
     developers = list(set(steam_games['developer']))
     if desarrollador in developers:
@@ -251,8 +182,8 @@ def developer(desarrollador: str):
         return{'El desarrollador brindado no se encuentra en la base de datos, por favor revíselo'}
 
 @app.get("/sentiment_analysis/{anio}")
-def sentiment_analysis( anio : int ): 
-    if anio > 2009 and anio < 2016:
+def sentiment_analysis( año : int ): 
+    if año > 2009 and año < 2016:
         positivo = 0
         negativo = 0
         neutral = 0
@@ -261,7 +192,7 @@ def sentiment_analysis( anio : int ):
                 if user_reviews['reviews'][i][j]['posted'] is None:
                     pass
                 if user_reviews['reviews'][i][j]['posted'] is not None:
-                    if int(user_reviews['reviews'][i][j]['posted'][:4]) == anio:
+                    if int(user_reviews['reviews'][i][j]['posted'][:4]) == año:
                         if user_reviews['reviews'][i][j]['review'] == 2:
                             positivo += 1
                         elif user_reviews['reviews'][i][j]['review'] == 1:
