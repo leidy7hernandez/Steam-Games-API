@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Optional
 import gzip
 import re
+from sklearn.neighbors import NearestNeighbors
 
 app = FastAPI()
 
@@ -26,6 +27,7 @@ def welcome():
             'def userforgenre( género : str )':'Retorna el top 5 de usuarios con más horas de juego en el género dado, con su URL (del user) y user_id.',
             'def developer( desarrollador : str )':'Cantidad de items y porcentaje de contenido Free por año según empresa desarrolladora.',
             'def sentiment_analysis( año : int )':'Según el año de lanzamiento, se devuelve una lista con la cantidad de registros de reseñas de usuarios que se encuentren categorizados con un análisis de sentimiento.',
+            'def recomendacion_juego(product_id : int)':'Ingresando el id de producto, muestra una lista con 5 juegos recomendados similares al ingresado',
             'Instrucciones':'Para llamar cada función por favor utiliza "/nombre_de_la_funcion/input"'}
 
 @app.get('/userdata/{user_id}')
@@ -204,5 +206,61 @@ def sentiment_analysis( año : int ):
         return resultado
     else:
         return {'El año dado está por fuera del de la base de datos. Se encuentra información desde 2010-10-16 hasta 2015-12-31'}
+
+def crear_matriz_caracteristicas(steam_games):
+    genres = steam_games['genres']
+    num_games = len(genres)
+    unique_genres = list(set(genre for game_genres in genres if game_genres is not None for genre in game_genres))
+
+    # Crear una matriz de características con valores binarios para cada género
+    feature_matrix = np.zeros((num_games, len(unique_genres)))
+
+    for i, game_genres in enumerate(genres):
+        if game_genres is not None:
+            for j, genre in enumerate(unique_genres):
+                if genre in game_genres:
+                    feature_matrix[i, j] = 1
+
+    return feature_matrix, unique_genres
+
+@app.get("/recomendacion_juego/{product_id}")
+def recomendacion_juego(product_id : int):
+    if product_id in list(set(steam_games['id'])):
+        # Crear una matriz de características para los juegos
+        genres = steam_games['genres']
+        num_games = len(genres)
+        unique_genres = list(set(genre for game_genres in genres if game_genres is not None for genre in game_genres))
+
+        # Crear una matriz de características con valores binarios para cada género
+        feature_matrix = np.zeros((num_games, len(unique_genres)))
+
+        for i, game_genres in enumerate(genres):
+            if game_genres is not None:
+                for j, genre in enumerate(unique_genres):
+                    if genre in game_genres:
+                        feature_matrix[i, j] = 1
+
+        # Crear un modelo KNeighbors
+        neigh = NearestNeighbors(n_neighbors=6)  # 6 para incluir el juego de consulta
+        neigh.fit(feature_matrix)
+
+        # Encontrar el índice del juego en función del product_id
+        game_index = np.where(steam_games['id'] == product_id)[0][0]
+
+        # Encontrar los juegos más similares
+        _, indices = neigh.kneighbors([feature_matrix[game_index]])
+
+        # Obtener los nombres de los juegos recomendados
+        recommended_games = [steam_games['app_name'][i] for i in indices[0][1:]]
+        
+        result_dict = {}
+        # Crear un diccionario con el resultado en el formato deseado
+        for i, juego in enumerate(recommended_games, 1):    
+            result_dict[i] = juego
+
+        return result_dict
+    
+    else:
+        return {'Message':f'El product id {product_id} no está en la base de datos, por favor revíselo'}
 
 #http://127.0.0.1:8000
