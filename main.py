@@ -222,8 +222,8 @@ def developer(desarrollador: str):
         return{'Message':'El desarrollador brindado no se encuentra en la base de datos, por favor revíselo'}
 
 @app.get("/sentiment_analysis/{anio}")
-def sentiment_analysis( año : int ): 
-    if año > 2009 and año < 2016:
+def sentiment_analysis( anio : int ): 
+    if anio > 2009 and anio < 2016:
         positivo = 0
         negativo = 0
         neutral = 0
@@ -232,7 +232,7 @@ def sentiment_analysis( año : int ):
                 if user_reviews['reviews'][i][j]['posted'] is None:
                     pass
                 if user_reviews['reviews'][i][j]['posted'] is not None:
-                    if int(user_reviews['reviews'][i][j]['posted'][:4]) == año:
+                    if int(user_reviews['reviews'][i][j]['posted'][:4]) == anio:
                         if user_reviews['reviews'][i][j]['review'] == 2:
                             positivo += 1
                         elif user_reviews['reviews'][i][j]['review'] == 1:
