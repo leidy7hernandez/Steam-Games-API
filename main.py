@@ -58,6 +58,13 @@ async def userdata(user_id: str):
             'Total de dinero gastado por el usuario': float(spend),
             'Cantidad Total de items': float(items)}
 
+def is_valid_date(date_string):
+    try:
+        datetime.strptime(date_string, '%Y-%m-%d')
+        return True
+    except ValueError:
+        return False
+
 @app.get("/countreviews/{first_date}/{last_date}")
 def countreviews(first_date, last_date : str ): 
     if datetime.strptime(first_date, '%Y-%m-%d') > datetime.strptime('2010-10-16', '%Y-%m-%d') and datetime.strptime(last_date, '%Y-%m-%d') < datetime.strptime('2015-12-31', '%Y-%m-%d') :
@@ -92,28 +99,41 @@ def genres_list():
     unique_genres = exploded_genres.dropna().unique()
     return unique_genres
 
+def playtime_per_genre():
+    g_list = genres_list()
+    # Crear un diccionario para realizar un seguimiento de las sumas por género
+    sumas_por_genero = {genero: 0 for genero in g_list}
+
+    # Recorrer el DataFrame y actualizar las sumas por género
+    for i in range(len(users_items)):
+        item_list = users_items['items'][i]
+
+        for item_data in item_list:
+            item_name = item_data['item_name']
+            playtime = item_data.get('playtime_forever', 0)
+
+            if isinstance(item_name, list):
+                for genero in item_name:
+                    if genero in sumas_por_genero:
+                        sumas_por_genero[genero] += playtime
+
+    # Crear un diccionario final con los resultados
+    resultados_por_genero = {genero: sumas_por_genero[genero] for genero in g_list}
+    diccionario_ordenado = dict(sorted(resultados_por_genero.items(), key=lambda item: item[1], reverse=True))
+    return diccionario_ordenado
+
 @app.get("/genre/{genero}")
-def genre(genero: str):
+def genre( genero : str ):
     genero = genero.lower()
-    # Accede a los tiempos de juego por género desde users_items['items'][0]
-    playtime_data = users_items['items'][0]
-    
-    if genero in playtime_data:
-        # Obtiene el tiempo de juego para el género dado
-        tiempo_jugado = playtime_data[genero]
-        
-        # Obtiene la lista de géneros únicos utilizando la función genres_list
-        unique_genres = genres_list()
-        
-        # Ordena los géneros por tiempo de juego en orden descendente
-        ranking = sorted(unique_genres, key=lambda x: playtime_data.get(x, 0), reverse=True)
-        
-        # Encuentra la posición del género en el ranking
-        posicion = ranking.index(genero) + 1
-        
-        return {f'El género {genero} se encuentra en el puesto número': posicion}
+    ranking = playtime_per_genre()
+
+    if genero in list(a.keys()):
+        # Obtener la posición del género en el ranking
+        posicion = list(ranking.keys()).index(genero)
+
+        return {f"La posición de {genero} en el ranking es": posicion+1}
     else:
-        return {'El género brindado no se encuentra en la base de datos, por favor revíselo'}
+        return{'Message':f'{genero} no se encuentra en el ranking, por favor revíselo'}
 
 
 @app.get("/userforgenre/{genero}")
@@ -122,40 +142,39 @@ def userforgenre(genero):
     g_list = genres_list()
     
     if genero in g_list:
-        # Inicializa un diccionario para almacenar el tiempo de juego por usuario
-        playtime_by_user = {}
+        # Crear un diccionario para almacenar las sumas por usuario
+        sumas_por_usuario = {}
 
-        # Recorre el DataFrame users_items
-        for index, row in users_items.iterrows():
-            user_id = row['user_id']
-            user_items = row['items']
+        # Filtrar y sumar playtime solo para usuarios con 'simulation' en item_name
+        for i in range(len(users_items)):
+            user_id = users_items['user_id'][i]
+            for item_data in users_items['items'][i]:
+                item_name = item_data.get('item_name', [])
+                playtime = item_data.get('playtime_forever', 0)
+                if isinstance(item_name, list) and genero in item_name:
+                    if user_id in sumas_por_usuario:
+                        sumas_por_usuario[user_id] += playtime
+                    else:
+                        sumas_por_usuario[user_id] = playtime
 
-            # Inicializa el tiempo de juego para este usuario en 0
-            total_playtime = 0
+        # Ordenar el diccionario de sumas por usuario en orden descendente
+        diccionario_ordenado = dict(sorted(sumas_por_usuario.items(), key=lambda item: item[1], reverse=True))
 
-            # Verifica si el género está presente en los items del usuario
-            if genero in user_items:
-                total_playtime = user_items[genero]
+        # Obtener el top 5 de usuarios con mayor playtime en 'simulation'
+        top_5 = dict(list(diccionario_ordenado.items())[:5])
 
-            # Agrega el tiempo de juego al diccionario
-            playtime_by_user[user_id] = total_playtime
+        # Crear un diccionario para almacenar las URLs de los usuarios
+        urls_por_usuario = {}
 
-        # Ordena el diccionario en función del tiempo de juego en orden descendente
-        sorted_users = sorted(playtime_by_user.items(), key=lambda x: x[1], reverse=True)
+        # Mapear las URLs de los usuarios en el top 5
+        for user_id in top_5:
+            index = users_items[users_items['user_id'] == user_id].index[0]
+            urls_por_usuario[user_id] = users_items['user_url'][index]
 
-        # Toma los primeros 5 usuarios del ranking
-        top_5_users = sorted_users[:5]
-
-        # Crea un diccionario con la información de los usuarios en el formato requerido
-        top_5_user_info = {}
-        for user_id, playtime in top_5_users:
-            user_url = users_items[users_items['user_id'] == user_id]['user_url'].values[0]
-            top_5_user_info[user_id] = user_url
-
-        return top_5_user_info
+        return (urls_por_usuario)
     else:
-        return {'El género brindado no se encuentra en la base de datos, por favor revíselo'}
-
+        return {'Message':'El género brindado no se encuentra en la base de datos, por favor revíselo'}
+    
 @app.get("/developer/{desarrollador}")
 def developer(desarrollador: str):
     desarrollador = desarrollador.lower()
