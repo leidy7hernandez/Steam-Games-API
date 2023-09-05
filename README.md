@@ -1,36 +1,26 @@
-# %% [markdown]
-# ## API PARA RECOMENDACIÓN DE VIDEOJUEGOS EN STEAM 
+## API PARA RECOMENDACIÓN DE VIDEOJUEGOS EN STEAM 
 
-# %% [markdown]
-# 
+## ETL (Extraction, Transformation, Load)
 
-# %% [markdown]
-# ## ETL (Extraction, Transformation, Load)
+* Librerias necesarias
 
-# %% [markdown]
-# * Librerias necesarias
-
-# %%
+```python
 import pandas as pd
 import numpy as np
 import re
 import json
 import gzip
 
-# %% [markdown]
-# Al realizar la cargar normal de los archivos se presentaban errores porque estaban en formato gzip, es por eso que antes de generar codigo éstos se extrajeron en la misma carpeta para evitar futuras complicaciones y optimizar el código.
+Al realizar la cargar normal de los archivos se presentaban errores porque estaban en formato gzip, es por eso que antes de generar codigo éstos se extrajeron en la misma carpeta para evitar futuras complicaciones y optimizar el código.
 
-# %% [markdown]
-# Además, dos archivos archivos tienen sólo comilla simple (') en lugar de comillas dobles ("), es decir, los archivos estan corruptos y adicionalmente anidados. Esto también genera un error al crear el dataframe así que se prefiere extraer y limpiar los archivos uno por uno para evitar problemas futuros.
+Además, dos archivos archivos tienen sólo comilla simple (') en lugar de comillas dobles ("), es decir, los archivos estan corruptos y adicionalmente anidados. Esto también genera un error al crear el dataframe así que se prefiere extraer y limpiar los archivos uno por uno para evitar problemas futuros.
 
-# %% [markdown]
-# -- steam_games
+    -- steam_games
 
-# %% [markdown]
-# Con el archivo steam_games no había ningún problema así que este es el primero que se carga:
+Con el archivo steam_games no había ningún problema así que este es el primero que se carga:
 
-# %%
-# Cargar el archivo JSON en un DataFrame
+```python
+#Cargar el archivo JSON en un DataFrame
 steam_games = pd.read_json('output_steam_games.json', lines=True)
 
 # %% [markdown]
